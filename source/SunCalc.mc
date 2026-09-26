@@ -25,6 +25,8 @@ class SunCalc {
     static const DEG    = 180.0 / Math.PI;
     // Zenith for civil sunrise/sunset (centre of sun on horizon + refraction)
     static const ZENITH = 90.833;
+    // Civil twilight: sun 6 degrees below the horizon (first light / last light)
+    static const ZENITH_CIVIL = 96.0;
 
     // Returns a Dictionary with keys:
     //   :sunrise  — Unix epoch seconds (UTC) of today's sunrise, or null
@@ -45,17 +47,23 @@ class SunCalc {
         var tSet  = N + ((18.0 - lngHour) / 24.0);
 
         var result = {};
-        result[:sunrise]  = _eventEpoch(tRise, lat, lng, year, month, day, true);
-        result[:sunset]   = _eventEpoch(tSet,  lat, lng, year, month, day, false);
+        result[:sunrise]    = _eventEpoch(tRise, lat, lng, year, month, day, true,  ZENITH);
+        result[:sunset]     = _eventEpoch(tSet,  lat, lng, year, month, day, false, ZENITH);
+        result[:firstLight] = _eventEpoch(tRise, lat, lng, year, month, day, true,  ZENITH_CIVIL);
+        result[:lastLight]  = _eventEpoch(tSet,  lat, lng, year, month, day, false, ZENITH_CIVIL);
 
-        // Western longitudes: sunset UTC falls on the next UTC day
-        if (result[:sunrise] != null && result[:sunset] != null
-            && result[:sunset] < result[:sunrise]) {
-            result[:sunset] = result[:sunset] + 86400;
-        }
+        var sr = result[:sunrise];
+        var ss = result[:sunset];
+        var fl = result[:firstLight];
+        var ll = result[:lastLight];
+        // UTC wrap (western longitudes): keep firstLight < sunrise < sunset < lastLight
+        if (sr != null && ss != null && ss < sr) { ss += 86400; result[:sunset] = ss; }
+        if (fl != null && sr != null && fl > sr) { result[:firstLight] = fl - 86400; }
+        if (ll != null && ss != null && ll < ss) { result[:lastLight]  = ll + 86400; }
 
         if (result[:sunrise] != null && result[:sunset] != null) {
-            result[:solarNoon] = (result[:sunrise] + result[:sunset]) / 2;
+            // sunrise + sunset would overflow a 32-bit Number
+            result[:solarNoon] = result[:sunrise] + (result[:sunset] - result[:sunrise]) / 2;
         } else {
             result[:solarNoon] = null;
         }
@@ -65,7 +73,7 @@ class SunCalc {
     // Returns Unix epoch seconds for a solar event, or null for polar day/night.
     static function _eventEpoch(t as Float, lat as Float, lng as Float,
                                 year as Number, month as Number, day as Number,
-                                isRise as Boolean) as Number or Null {
+                                isRise as Boolean, zenith as Float) as Number or Null {
 
         var M = (0.9856 * t) - 3.289;
 
@@ -82,7 +90,7 @@ class SunCalc {
         var sinDec = 0.39782 * Math.sin(L * RAD);
         var cosDec = Math.cos(Math.asin(sinDec));
 
-        var cosH = (Math.cos(ZENITH * RAD) - (sinDec * Math.sin(lat * RAD)))
+        var cosH = (Math.cos(zenith * RAD) - (sinDec * Math.sin(lat * RAD)))
                    / (cosDec * Math.cos(lat * RAD));
 
         if (cosH > 1.0)  { return null; }
@@ -144,10 +152,14 @@ class SunCalc {
         var pastLabel;
         var tilLabel;
         var arcFill;
+        var arcStart;
+        var arcEnd;
 
         if (nowEpoch >= sunriseEpoch && nowEpoch < sunsetEpoch) {
             // ── Daytime ──────────────────────────────────────────────
             phase    = :day;
+            arcStart = sunriseEpoch;
+            arcEnd   = sunsetEpoch;
             pastSecs = nowEpoch - sunriseEpoch;         // since sunrise
             tilSecs  = sunsetEpoch - nowEpoch;          // until sunset
             var span = (sunsetEpoch - sunriseEpoch).toFloat();
@@ -158,6 +170,8 @@ class SunCalc {
             // ── Night: before sunrise (use yesterday's sunset = sunset - 86400) ──
             phase    = :night;
             var prevSunset = sunsetEpoch - 86400;
+            arcStart = prevSunset;
+            arcEnd   = sunriseEpoch;
             pastSecs = nowEpoch - prevSunset;           // since yesterday's sunset
             tilSecs  = sunriseEpoch - nowEpoch;         // until today's sunrise
             if (pastSecs < 0) { pastSecs = 0; }
@@ -169,6 +183,8 @@ class SunCalc {
             // ── Night: after sunset ───────────────────────────────────
             phase    = :night;
             var nextSunrise = sunriseEpoch + 86400;
+            arcStart = sunsetEpoch;
+            arcEnd   = nextSunrise;
             pastSecs = nowEpoch - sunsetEpoch;          // since today's sunset
             tilSecs  = nextSunrise - nowEpoch;          // until tomorrow's sunrise
             var span = (nextSunrise - sunsetEpoch).toFloat();
@@ -185,6 +201,8 @@ class SunCalc {
             :primaryLine  => _fmtTil(tilSecs,  tilLabel),
             :secondLine   => _fmtPast(pastSecs, pastLabel),
             :arcFill      => arcFill,
+            :arcStart     => arcStart,
+            :arcEnd       => arcEnd,
             :pastSecs     => pastSecs,
             :tilSecs      => tilSecs
         };

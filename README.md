@@ -23,23 +23,33 @@ reading is the countdown to the *next* horizon event; the secondary (smaller,
 dimmer) reading shows elapsed time since the *last* horizon event. Together
 they place you precisely in the arc at a glance.
 
-The face also shows today's sunrise/sunset, the date, a visual arc-progress
-bar, and a battery strip.
+The face also shows today's sunrise/sunset, first light / last light
+(civil twilight, sun 6° below the horizon), a battery strip, and a **sun-dial
+ring** around the bezel.
+
+![Horizon Time on the Fenix 5X Plus (simulator)](docs/watchface.png)
 
 ### Display layout (240×240 round)
 
 ```
-        Fri Sep 25
-     ═══════◉═══════     ← arc progress bar (sun dot)
-  ^06:43         18:45v  ← local sunrise / sunset
-       -2:18             ← primary: countdown to next horizon event
-       tilset
-       +9:44             ← secondary: elapsed since last event
-      pastrise
-         ▓▓▓▓▓░          ← battery bar
+     ^06:42   18:45v     ← sunrise / sunset
+      06:17   19:10      ← first light / last light
+     -8:31 tilrise       ← primary: countdown to next horizon event
+     +3:26 pastset       ← secondary: elapsed since last event
+          ▬▬             ← battery
 ```
 
-Colors shift between **amber** (daytime) and **steel blue** (night).
+### The ring
+
+The ring is a 24-hour sun dial (360° = 24 h). **Solar noon is at the top**
+and the green dot moves clockwise, so sunrise sits near 9 o'clock, sunset
+near 3 o'clock (shifting with the seasons), and night runs along the bottom.
+The thin white ring is the day; the thick **orange** arcs mark first light →
+sunrise and sunset → last light. Because it is a continuous loop, the dot
+never resets at sunrise or sunset.
+
+Colors shift between **amber** (daytime) and **steel blue** (night) for the
+text.
 
 ---
 
@@ -52,9 +62,10 @@ Colors shift between **amber** (daytime) and **steel blue** (night).
 │   ├── HorizonTimeApp.mc             ← App entry point
 │   ├── HorizonTimeView.mc            ← Watch face drawing / layout
 │   └── SunCalc.mc                    ← Solar position + Horizon Time math
-└── resources/
-    ├── strings/strings.xml
-    └── drawables/                    ← drawables.xml + launcher_icon.png
+├── resources/
+│   ├── strings/strings.xml
+│   └── drawables/                    ← drawables.xml + launcher_icon.png
+└── docs/watchface.png                ← simulator screenshot
 ```
 
 ---
@@ -140,6 +151,8 @@ calls:
    would otherwise precede sunrise.
 
 `Time.now()` is already Unix epoch seconds, so no epoch offset is applied.
+Solar noon is `sunrise + (sunset − sunrise) / 2`: adding two 2026 epoch
+timestamps overflows Monkey C's 32-bit `Number`.
 
 Horizon Time itself:
 
@@ -147,12 +160,13 @@ Horizon Time itself:
 -- Daytime --
 pastSecs = now − sunrise
 tilSecs  = sunset − now
-arcFill  = pastSecs / (sunset − sunrise)   [0–1, for progress bar]
 
 -- Nighttime --
 pastSecs = now − lastSunset
 tilSecs  = nextSunrise − now
-arcFill  = pastSecs / (nextSunrise − lastSunset)
+
+-- Ring --
+dotDeg   = (now − solarNoon) / 240   [° clockwise from 12 o'clock, wrapped ±180]
 ```
 
 ---
@@ -163,7 +177,8 @@ arcFill  = pastSecs / (nextSunrise − lastSunset)
 |---|---|
 | Default lat/lng | `HorizonTimeView.mc` `_lat`, `_lng` |
 | Day/night accent colors | `HorizonTimeView.mc` `accentColor` |
-| Arc bar position/size | `HorizonTimeView.mc` `barY`, `barW` |
+| Ring radius / thickness | `HorizonTimeView.mc` `ringR`, `setPenWidth` |
+| Twilight arc color | `HorizonTimeView.mc` `twilightColor` |
 | Reading fonts | `HorizonTimeView.mc` `FONT_NUMBER_*` / `FONT_SMALL` |
 
 ---
