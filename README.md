@@ -11,31 +11,32 @@ an arbitrary clock reading tied to a time zone, it anchors time to the
 actual solar day at your location using the four-label protocol:
 
 **Daytime** (sunrise → sunset):
-- `+HH:MM pastrise` — elapsed time since sunrise
-- `-HH:MM tilset`   — countdown until sunset
+- `+H:MM pastrise` — elapsed time since sunrise
+- `-H:MM tilset`   — countdown until sunset
 
 **Nighttime** (sunset → next sunrise):
-- `+HH:MM pastset`  — elapsed time since sunset
-- `-HH:MM tilrise`  — countdown until next sunrise
+- `+H:MM pastset`  — elapsed time since sunset
+- `-H:MM tilrise`  — countdown until next sunrise
 
 The face shows both readings simultaneously. The primary (large, accented)
-line is the countdown to the *next* horizon event; the secondary (smaller,
-dimmer) line shows elapsed time since the *last* horizon event. Together
+reading is the countdown to the *next* horizon event; the secondary (smaller,
+dimmer) reading shows elapsed time since the *last* horizon event. Together
 they place you precisely in the arc at a glance.
 
-The face also shows standard clock time, today's sunrise/sunset, and a
-visual arc-progress bar that sweeps across the top of the display.
+The face also shows today's sunrise/sunset, the date, a visual arc-progress
+bar, and a battery strip.
 
-### Display layout (240×240 px)
+### Display layout (240×240 round)
 
 ```
-        Wed Sep 25
-  ════════════◉══════   ← arc progress bar (sun dot)
-     -2:18 tilset       ← primary: countdown to next horizon event
-   +9:44 pastrise       ← secondary: elapsed since last event
-  ↑06:14         18:47↓ ← local sunrise / sunset
-        16:05           ← standard clock
-           ▓▓▓▓▓▓░░     ← battery bar
+        Fri Sep 25
+     ═══════◉═══════     ← arc progress bar (sun dot)
+  ^06:43         18:45v  ← local sunrise / sunset
+       -2:18             ← primary: countdown to next horizon event
+       tilset
+       +9:44             ← secondary: elapsed since last event
+      pastrise
+         ▓▓▓▓▓░          ← battery bar
 ```
 
 Colors shift between **amber** (daytime) and **steel blue** (night).
@@ -45,15 +46,15 @@ Colors shift between **amber** (daytime) and **steel blue** (night).
 ## Project Structure
 
 ```
-horizon-time-watchface/
 ├── manifest.xml                      ← Connect IQ app manifest
+├── monkey.jungle                     ← Build config (SDK 9.x)
 ├── source/
-│   ├── HorizonTimeApp.mc             ← App entry point, GPS handler
+│   ├── HorizonTimeApp.mc             ← App entry point
 │   ├── HorizonTimeView.mc            ← Watch face drawing / layout
 │   └── SunCalc.mc                    ← Solar position + Horizon Time math
 └── resources/
     ├── strings/strings.xml
-    └── drawables/drawables.xml
+    └── drawables/                    ← drawables.xml + launcher_icon.png
 ```
 
 ---
@@ -62,76 +63,83 @@ horizon-time-watchface/
 
 ### Prerequisites
 
-1. Install **Garmin Connect IQ SDK** (≥ 7.4):
+1. **Garmin Connect IQ SDK** (built against 9.2) via the SDK Manager:
    https://developer.garmin.com/connect-iq/sdk/
-
-2. Install **VS Code** + the **Monkey C** extension (by Garmin), or use
-   the standalone `connectiq` CLI tools.
-
-3. You need the **Fenix 5X Plus** device key from the SDK's
-   `devices/fenix5xPlus/` folder (included with the SDK install).
+   In the SDK Manager, also download the **fenix 5X Plus** device.
+2. **Java** (JRE 17 is fine) on your `PATH` — the compiler needs it.
+3. A **developer key** (`developer_key.der`). Generate one in VS Code
+   (**Monkey C: Generate a Developer Key**) or with OpenSSL:
+   ```bash
+   openssl genrsa -out key.pem 4096
+   openssl pkcs8 -topk8 -inform PEM -outform DER -in key.pem -out developer_key.der -nocrypt
+   ```
+   Keep it out of the repo (`*.der` is git-ignored).
+4. Optional: **VS Code** + the **Monkey C** extension (by Garmin).
 
 ### Build with VS Code
 
-1. Open the `horizon-time-watchface/` folder in VS Code.
-2. Press `Cmd/Ctrl+Shift+P` → **Monkey C: Build Current Project**.
-3. Select `fenix5xPlus` as the target device.
-4. The `.prg` file appears in `bin/`.
+Open this folder, press `Ctrl+Shift+P` → **Monkey C: Build Current Project**,
+and pick `fenix5xplus`. The `.prg` appears in `bin/`.
 
 ### Build with CLI
 
 ```bash
-# Set your SDK path
-export CIQ_SDK=/path/to/connectiq-sdk
-
 $CIQ_SDK/bin/monkeyc \
-  -f manifest.xml \
+  -f monkey.jungle \
   -o bin/horizon-time.prg \
-  -d fenix5xPlus \
+  -d fenix5xplus \
   -y /path/to/developer_key.der \
-  source/HorizonTimeApp.mc \
-  source/HorizonTimeView.mc \
-  source/SunCalc.mc
+  -w
 ```
 
-### Sideload to watch
+`$CIQ_SDK` is the SDK folder, e.g.
+`%APPDATA%\Garmin\ConnectIQ\Sdks\connectiq-sdk-win-<version>`.
+
+### Run in the simulator
 
 ```bash
-# With watch connected via USB and Garmin Express running:
-$CIQ_SDK/bin/monkeydo bin/horizon-time.prg fenix5xPlus
+$CIQ_SDK/bin/connectiq          # start the simulator
+$CIQ_SDK/bin/monkeydo bin/horizon-time.prg fenix5xplus
 ```
 
-Or use the **Garmin Connect app** on your phone:
-1. Transfer `horizon-time.prg` to the watch's `GARMIN/APPS/` folder.
-2. Restart the watch; select the face from the watch face gallery.
+### Sideload to the watch
+
+Connect the watch over USB and copy `bin/horizon-time.prg` into
+`GARMIN/APPS/`. On Windows the watch is an MTP device (no drive letter):
+in File Explorer open **This PC → fenix 5X Plus → Primary → GARMIN → Apps**.
+Eject, unplug, then hold the middle-left button → **Watch Face** →
+**Horizon Time** → **Apply**.
+
+Garmin Express does not list or install sideloaded apps.
 
 ---
 
-## Location / GPS
+## Location
 
-On first launch the face requests a one-shot GPS fix. Until the fix
-arrives it uses the **La Crescenta default** (34.23°N, 118.23°W) which
-is close enough for testing in the San Gabriel foothills.
-
-After the fix, solar data is recalculated once per day. The watch
-remembers the last GPS position across app restarts because it uses
-`Position.LOCATION_ONE_SHOT` on each launch — the Fenix 5X Plus
-caches almanac data so subsequent fixes are fast.
+Watch faces cannot request GPS themselves. The face reads the watch's
+**last known position** (`Position.getInfo()`) when the day rolls over — the
+position is whatever the watch last stored from an activity or another app.
+Until one is available it uses the **La Crescenta default**
+(34.23°N, 118.23°W). Compass and elevation are not shown: watch faces have
+no access to the `Sensor` module.
 
 ---
 
 ## The Math: How Horizon Time is Calculated
 
-The solar algorithm (`SunCalc.mc`) is a clean-room MonkeyC
-implementation of the USNO/Astronomical Almanac method, chosen
-because it fits in the Connect IQ memory budget and requires no
-external calls:
+The solar algorithm (`SunCalc.mc`) is the USNO/Astronomical Almanac method,
+chosen because it fits in the Connect IQ memory budget and needs no external
+calls:
 
 1. **Day of year** computed from calendar date.
 2. **Mean anomaly** → **true longitude** → **right ascension**.
-3. **Declination** → **local hour angle** (using 90.833° zenith for
-   civil sunrise/sunset with atmospheric refraction).
-4. Local event time converted to UTC epoch seconds.
+3. **Declination** → **local hour angle** (90.833° zenith for
+   sunrise/sunset with atmospheric refraction).
+4. Event time converted to UTC epoch seconds. For western longitudes the
+   sunset lands on the next UTC day, so it is shifted by +24 h when it
+   would otherwise precede sunrise.
+
+`Time.now()` is already Unix epoch seconds, so no epoch offset is applied.
 
 Horizon Time itself:
 
@@ -140,15 +148,11 @@ Horizon Time itself:
 pastSecs = now − sunrise
 tilSecs  = sunset − now
 arcFill  = pastSecs / (sunset − sunrise)   [0–1, for progress bar]
-display  = "−H:MM tilset"  (primary)
-           "+H:MM pastrise" (secondary)
 
--- Nighttime (after sunset) --
-pastSecs = now − sunset
+-- Nighttime --
+pastSecs = now − lastSunset
 tilSecs  = nextSunrise − now
-arcFill  = pastSecs / (nextSunrise − sunset)
-display  = "−H:MM tilrise" (primary)
-           "+H:MM pastset"  (secondary)
+arcFill  = pastSecs / (nextSunrise − lastSunset)
 ```
 
 ---
@@ -157,11 +161,10 @@ display  = "−H:MM tilrise" (primary)
 
 | What to change | Where |
 |---|---|
-| Default lat/lng | `HorizonTimeView.mc` lines `_lat`, `_lng` |
-| Day/night accent colors | `HorizonTimeView.mc` `accentColor` assignments |
-| Arc bar position/size | `HorizonTimeView.mc` `barY`, `barW` constants |
-| Font size of Horizon label | Change `FONT_NUMBER_HOT` to another system font |
-| Show steps / HR instead of battery | Replace `_drawBatteryDot()` call |
+| Default lat/lng | `HorizonTimeView.mc` `_lat`, `_lng` |
+| Day/night accent colors | `HorizonTimeView.mc` `accentColor` |
+| Arc bar position/size | `HorizonTimeView.mc` `barY`, `barW` |
+| Reading fonts | `HorizonTimeView.mc` `FONT_NUMBER_*` / `FONT_SMALL` |
 
 ---
 

@@ -26,8 +26,6 @@ class HorizonTimeView extends WatchUi.WatchFace {
     // Location (defaults to La Crescenta until GPS fix)
     var _lat      as Float   = 34.23;
     var _lng      as Float   = -118.23;
-    var _altM     as Float?  = null;   // altitude in metres from GPS
-    var _heading  as Float?  = null;   // magnetic heading in degrees (0–360)
 
     // Cached solar data (refreshed once per day)
     var _sunrise  as Number? = null;
@@ -38,24 +36,12 @@ class HorizonTimeView extends WatchUi.WatchFace {
         WatchFace.initialize();
     }
 
-    function setLocation(lat as Float, lng as Float, altM as Float?) as Void {
-        _lat     = lat;
-        _lng     = lng;
-        _altM    = altM;
-        _lastDay = -1;
-        WatchUi.requestUpdate();
-    }
-
-    function setHeading(heading as Float?) as Void {
-        _heading = heading;
-    }
-
     function onLayout(dc as Graphics.Dc) as Void {}
 
     function onUpdate(dc as Graphics.Dc) as Void {
         var now     = Time.now();
         var nowSecs = now.value();
-        var unixNow = nowSecs + 631065600; // Garmin → Unix epoch
+        var unixNow = nowSecs; // Time.now() is already Unix epoch
 
         var info  = Gregorian.info(now, Time.FORMAT_SHORT);
         var year  = info.year;
@@ -69,9 +55,6 @@ class HorizonTimeView extends WatchUi.WatchFace {
                 var coords = pInfo.position.toDegrees();
                 _lat = coords[0].toFloat();
                 _lng = coords[1].toFloat();
-                if (pInfo has :altitude && pInfo.altitude != null) {
-                    _altM = pInfo.altitude.toFloat();
-                }
             }
             var utcOffset = _estimateUtcOffset(unixNow, info);
             var solar     = SunCalc.compute(_lat, _lng, year, month, day, utcOffset);
@@ -80,14 +63,7 @@ class HorizonTimeView extends WatchUi.WatchFace {
             _lastDay = day;
         }
 
-        // Watch faces have no Sensor access; use last known GPS heading (radians)
-        var hInfo = Position.getInfo();
-        if (hInfo has :heading && hInfo.heading != null) {
-            _heading = hInfo.heading.toFloat();
-        }
-
-        var cx = dc.getWidth()  / 2;  // 120
-        var cy = dc.getHeight() / 2;  // 120
+        var cx = dc.getWidth() / 2;
 
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
         dc.clear();
@@ -97,7 +73,7 @@ class HorizonTimeView extends WatchUi.WatchFace {
                     : (info.hour >= 6 && info.hour < 20);
 
         var accentColor = isDay ? 0xC8922A : 0x7BA3C8;
-        var dimColor    = 0x666666;
+        var dimColor    = 0x888888;
         var mutedColor  = 0x3A3A3A;
 
         // ── 1. Date ──────────────────────────────────────────────────────
@@ -107,25 +83,29 @@ class HorizonTimeView extends WatchUi.WatchFace {
         var dateStr  = Lang.format("$1$ $2$ $3$",
             [dayNames[info.day_of_week - 1], monNames[month - 1], day.format("%02d")]);
         dc.setColor(dimColor, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 10, Graphics.FONT_XTINY, dateStr, Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(cx, 16, Graphics.FONT_XTINY, dateStr, Graphics.TEXT_JUSTIFY_CENTER);
 
         // ── 2. Arc progress bar ──────────────────────────────────────────
         var barH = 6;
-        var barW = 180;
+        var barW = 150;
         var barX = cx - barW / 2;
-        var barY = 32;
+        var barY = 46;
 
         dc.setColor(mutedColor, Graphics.COLOR_TRANSPARENT);
         dc.fillRoundedRectangle(barX, barY, barW, barH, 3);
 
-        var arcFill   = 0.5f;
-        var primLine  = "···";
-        var secLine   = "···";
+        var arcFill  = 0.5f;
+        var primTime = "--:--";
+        var primLbl  = "";
+        var secTime  = "--:--";
+        var secLbl   = "";
         if (_sunrise != null && _sunset != null) {
             var ht   = SunCalc.horizonTime(unixNow, _sunrise, _sunset);
             arcFill  = ht[:arcFill].toFloat();
-            primLine = ht[:primaryLine];
-            secLine  = ht[:secondLine];
+            var p = _splitLabel(ht[:primaryLine]);
+            var q = _splitLabel(ht[:secondLine]);
+            primTime = p[0]; primLbl = p[1];
+            secTime  = q[0]; secLbl  = q[1];
         } else {
             arcFill = (info.hour * 3600 + info.min * 60).toFloat() / 86400.0;
         }
@@ -134,130 +114,43 @@ class HorizonTimeView extends WatchUi.WatchFace {
         if (fillW > barW) { fillW = barW; }
         dc.setColor(accentColor, Graphics.COLOR_TRANSPARENT);
         dc.fillRoundedRectangle(barX, barY, fillW, barH, 3);
-        // Dot
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
         dc.fillCircle(barX + fillW, barY + barH / 2, 5);
 
-        // ── 3. Paragonday readings ───────────────────────────────────────
-        dc.setColor(accentColor, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 46, Graphics.FONT_NUMBER_MEDIUM, primLine,
-                    Graphics.TEXT_JUSTIFY_CENTER);
-        dc.setColor(dimColor, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 92, Graphics.FONT_SMALL, secLine,
-                    Graphics.TEXT_JUSTIFY_CENTER);
-
-        // ── 4. Sunrise / Sunset times ────────────────────────────────────
-        var riseStr = "···";
-        var setStr  = "···";
+        // ── 3. Sunrise / Sunset times ────────────────────────────────────
+        var riseStr = "--:--";
+        var setStr  = "--:--";
         if (_sunrise != null) { riseStr = _epochToLocalHHMM(_sunrise); }
         if (_sunset  != null) { setStr  = _epochToLocalHHMM(_sunset);  }
-        dc.setColor(accentColor, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(barX + 2,        120, Graphics.FONT_XTINY, "^" + riseStr,
+        dc.setColor(dimColor, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(barX,        58, Graphics.FONT_XTINY, "^" + riseStr,
                     Graphics.TEXT_JUSTIFY_LEFT);
-        dc.drawText(barX + barW - 2, 120, Graphics.FONT_XTINY, setStr + "v",
+        dc.drawText(barX + barW, 58, Graphics.FONT_XTINY, setStr + "v",
                     Graphics.TEXT_JUSTIFY_RIGHT);
 
-        // ── 5. Compass (center-left) ─────────────────────────────────────
-        _drawCompass(dc, 80, 162, 28, accentColor, dimColor, mutedColor);
+        // ── 4. Horizon readings ──────────────────────────────────────────
+        // Primary: countdown to next horizon event
+        dc.setColor(accentColor, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(cx, 84, Graphics.FONT_NUMBER_MEDIUM, primTime,
+                    Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(cx, 130, Graphics.FONT_SMALL, primLbl,
+                    Graphics.TEXT_JUSTIFY_CENTER);
+        // Secondary: elapsed since last horizon event
+        dc.setColor(dimColor, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(cx, 158, Graphics.FONT_NUMBER_MILD, secTime,
+                    Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(cx, 192, Graphics.FONT_XTINY, secLbl,
+                    Graphics.TEXT_JUSTIFY_CENTER);
 
-        // ── 6. Elevation (center-right) ──────────────────────────────────
-        _drawElevation(dc, 162, 148, accentColor, dimColor);
-
-        // ── 7. Battery strip ─────────────────────────────────────────────
-        _drawBattery(dc, cx, 228, accentColor);
+        // ── 5. Battery strip ─────────────────────────────────────────────
+        _drawBattery(dc, cx, 226, accentColor);
     }
 
-    // Compass rose drawn with polygons (no arc support in dc, use lines)
-    // cx, cy = center; r = outer radius
-    function _drawCompass(dc as Graphics.Dc, cx as Number, cy as Number,
-                          r as Number, accent as Number,
-                          dim as Number, muted as Number) as Void {
-        // Outer ring
-        dc.setColor(muted, Graphics.COLOR_TRANSPARENT);
-        dc.drawCircle(cx, cy, r);
-        dc.drawCircle(cx, cy, r - 2);
-
-        // Cardinal tick marks
-        var cardinals = [["N", 0], ["E", 90], ["S", 180], ["W", 270]];
-        for (var i = 0; i < cardinals.size(); i++) {
-            var label = cardinals[i][0];
-            var angleDeg = cardinals[i][1].toFloat();
-            var rad = angleDeg * Math.PI / 180.0;
-            var ix = (cx + (r - 4) * Math.sin(rad)).toNumber();
-            var iy = (cy - (r - 4) * Math.cos(rad)).toNumber();
-            var ox = (cx + r * Math.sin(rad)).toNumber();
-            var oy = (cy - r * Math.cos(rad)).toNumber();
-            dc.setColor(dim, Graphics.COLOR_TRANSPARENT);
-            dc.drawLine(ix, iy, ox, oy);
-            // Label just inside the tick
-            var lx = (cx + (r - 11) * Math.sin(rad)).toNumber();
-            var ly = (cy - (r - 11) * Math.cos(rad)).toNumber();
-            dc.setColor(dim, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(lx, ly - 6, Graphics.FONT_XTINY, label,
-                        Graphics.TEXT_JUSTIFY_CENTER);
-        }
-
-        // Heading needle
-        var headingRad = (_heading != null) ? _heading : 0.0f; // radians from GPS
-        // North tip (accent)
-        var nx = (cx + (r - 8) * Math.sin(headingRad)).toNumber();
-        var ny = (cy - (r - 8) * Math.cos(headingRad)).toNumber();
-        // South tail
-        var sx = (cx - (r - 14) * Math.sin(headingRad)).toNumber();
-        var sy = (cy + (r - 14) * Math.cos(headingRad)).toNumber();
-        dc.setColor(accent, Graphics.COLOR_TRANSPARENT);
-        dc.drawLine(cx, cy, nx, ny);
-        dc.fillCircle(nx, ny, 3);
-        dc.setColor(0x333333, Graphics.COLOR_TRANSPARENT);
-        dc.drawLine(cx, cy, sx, sy);
-
-        // Center pivot dot
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.fillCircle(cx, cy, 3);
-
-        // Heading degrees label
-        var hdgDeg = (_heading != null)
-            ? (((_heading * 180.0 / Math.PI).toNumber() % 360 + 360) % 360)
-            : 0;
-        dc.setColor(dim, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, cy + r + 3, Graphics.FONT_XTINY,
-                    hdgDeg.format("%03d") + "°",
-                    Graphics.TEXT_JUSTIFY_CENTER);
-    }
-
-    // Elevation display with a simple mountain glyph
-    function _drawElevation(dc as Graphics.Dc, cx as Number, topY as Number,
-                             accent as Number, dim as Number) as Void {
-        // Altitude value
-        var altFt = 0;
-        if (_altM != null) {
-            altFt = (_altM * 3.28084).toNumber();
-        } else {
-            altFt = 2400; // La Crescenta default ~2400 ft
-        }
-
-        var altStr  = altFt.format("%d");
-        var unitStr = "ft";
-
-        dc.setColor(accent, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, topY, Graphics.FONT_NUMBER_MILD, altStr,
-                    Graphics.TEXT_JUSTIFY_CENTER);
-        dc.setColor(dim, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, topY + 28, Graphics.FONT_XTINY, unitStr,
-                    Graphics.TEXT_JUSTIFY_CENTER);
-
-        // Simple mountain glyph (3 triangular lines)
-        var gY = topY + 42;
-        var gW = 28;
-        dc.setColor(dim, Graphics.COLOR_TRANSPARENT);
-        // Left peak
-        dc.drawLine(cx - gW/2, gY,     cx - gW/6, gY - 10);
-        dc.drawLine(cx - gW/6, gY - 10, cx,        gY - 6);
-        // Right peak (taller)
-        dc.drawLine(cx,        gY - 6,  cx + gW/5, gY - 14);
-        dc.drawLine(cx + gW/5, gY - 14, cx + gW/2, gY);
-        // Base line
-        dc.drawLine(cx - gW/2, gY, cx + gW/2, gY);
+    // Splits "-2:18 tilset" into ["-2:18", "tilset"]
+    function _splitLabel(line as String) as Array<String> {
+        var i = line.find(" ");
+        if (i == null) { return [line, ""]; }
+        return [line.substring(0, i), line.substring(i + 1, line.length())];
     }
 
     function _estimateUtcOffset(unixNow as Number, localInfo as Gregorian.Info) as Float {

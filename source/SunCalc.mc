@@ -48,6 +48,12 @@ class SunCalc {
         result[:sunrise]  = _eventEpoch(tRise, lat, lng, year, month, day, true);
         result[:sunset]   = _eventEpoch(tSet,  lat, lng, year, month, day, false);
 
+        // Western longitudes: sunset UTC falls on the next UTC day
+        if (result[:sunrise] != null && result[:sunset] != null
+            && result[:sunset] < result[:sunrise]) {
+            result[:sunset] = result[:sunset] + 86400;
+        }
+
         if (result[:sunrise] != null && result[:sunset] != null) {
             result[:solarNoon] = (result[:sunrise] + result[:sunset]) / 2;
         } else {
