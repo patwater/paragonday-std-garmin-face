@@ -42,7 +42,7 @@ ring** around the bezel.
 ### The ring
 
 The ring is a 24-hour sun dial (360° = 24 h). **Solar noon is at the top**
-and the green dot moves clockwise, so sunrise sits near 9 o'clock, sunset
+(true solar transit, not 12:00 on the clock) and the green dot moves clockwise, so sunrise sits near 9 o'clock, sunset
 near 3 o'clock (shifting with the seasons), and night runs along the bottom.
 The thin white ring is the day; the thick **orange** arcs mark first light →
 sunrise and sunset → last light. Because it is a continuous loop, the dot
@@ -151,7 +151,7 @@ calls:
    would otherwise precede sunrise.
 
 `Time.now()` is already Unix epoch seconds, so no epoch offset is applied.
-Solar noon is `sunrise + (sunset − sunrise) / 2`: adding two 2026 epoch
+Solar noon is computed directly from the sun's transit (not from sunrise/sunset), so the ring keeps its orientation in polar day/night. Note that adding two 2026 epoch
 timestamps overflows Monkey C's 32-bit `Number`.
 
 Horizon Time itself:

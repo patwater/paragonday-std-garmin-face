@@ -61,13 +61,25 @@ class SunCalc {
         if (fl != null && sr != null && fl > sr) { result[:firstLight] = fl - 86400; }
         if (ll != null && ss != null && ll < ss) { result[:lastLight]  = ll + 86400; }
 
-        if (result[:sunrise] != null && result[:sunset] != null) {
-            // sunrise + sunset would overflow a 32-bit Number
-            result[:solarNoon] = result[:sunrise] + (result[:sunset] - result[:sunrise]) / 2;
-        } else {
-            result[:solarNoon] = null;
-        }
+        // Solar noon = true solar transit (independent of sunrise/sunset, so it
+        // also exists in polar day/night). Not clock noon.
+        result[:solarNoon] = _noonEpoch(N + ((12.0 - lngHour) / 24.0), lng, year, month, day);
         return result;
+    }
+
+    // Unix epoch seconds of solar transit (sun due south) for the given date.
+    static function _noonEpoch(t as Float, lng as Float,
+                               year as Number, month as Number, day as Number) as Number {
+        var M = (0.9856 * t) - 3.289;
+        var L = M + (1.916 * Math.sin(M * RAD)) + (0.020 * Math.sin(2.0 * M * RAD)) + 282.634;
+        L = _mod360(L);
+        var RA = Math.atan(0.91764 * Math.tan(L * RAD)) * DEG;
+        RA = _mod360(RA);
+        var Lquadrant  = Math.floor(L  / 90.0) * 90.0;
+        var RAquadrant = Math.floor(RA / 90.0) * 90.0;
+        RA = (RA + (Lquadrant - RAquadrant)) / 15.0;
+        var UT = _mod24(RA - (0.06571 * t) - 6.622 - (lng / 15.0));
+        return (_daysSinceEpoch(year, month, day) * 86400) + (UT * 3600.0).toNumber();
     }
 
     // Returns Unix epoch seconds for a solar event, or null for polar day/night.

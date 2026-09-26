@@ -100,24 +100,28 @@ class HorizonTimeView extends WatchUi.WatchFace {
         var secTime  = "--:--";
         var secLbl   = "";
         var dotDeg;                     // clockwise degrees from 12 o'clock
-        if (_sunrise != null && _sunset != null && _noon != null) {
+        if (_sunrise != null && _sunset != null) {
             var ht = SunCalc.horizonTime(unixNow, _sunrise, _sunset);
             var p = _splitLabel(ht[:primaryLine]);
             var q = _splitLabel(ht[:secondLine]);
             primSign = p[0]; primTime = p[1]; primLbl = p[2];
             secSign  = q[0]; secTime  = q[1]; secLbl  = q[2];
-
-            dc.setPenWidth(10);   // thicker than the white ring
-            dc.setColor(twilightColor, Graphics.COLOR_TRANSPARENT);
-            if (_firstLight != null) {
-                _drawSlice(dc, cx, cy, ringR, _firstLight, _sunrise, _noon);
-            }
-            if (_lastLight != null) {
-                _drawSlice(dc, cx, cy, ringR, _sunset, _lastLight, _noon);
+        }
+        if (_noon != null) {
+            // Orientation is always solar noon (true transit), never clock noon.
+            if (_sunrise != null && _sunset != null) {
+                dc.setPenWidth(10);   // thicker than the white ring
+                dc.setColor(twilightColor, Graphics.COLOR_TRANSPARENT);
+                if (_firstLight != null) {
+                    _drawSlice(dc, cx, cy, ringR, _firstLight, _sunrise, _noon);
+                }
+                if (_lastLight != null) {
+                    _drawSlice(dc, cx, cy, ringR, _sunset, _lastLight, _noon);
+                }
             }
             dotDeg = _relDeg(unixNow, _noon);
         } else {
-            dotDeg = ((info.hour * 3600 + info.min * 60) - 43200) / 240.0;
+            dotDeg = 0.0;
         }
         dc.setPenWidth(1);
 
